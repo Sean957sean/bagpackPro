@@ -136,7 +136,7 @@
         
       console.log(poses);
       keypoints.forEach(k => {
-        if (k.score > 0) { // 신뢰도가 50% 이상인 키포인트만 그립니다.
+        if (k.score > 0.1) { // 신뢰도가 50% 이상인 키포인트만 그립니다.
           ctx.beginPath();
           ctx.arc(k.x, k.y, 5, 0, 2 * Math.PI);
           ctx.fillStyle = 'red';
@@ -151,11 +151,7 @@
         ['left_elbow', 'left_wrist'],
         ['right_elbow', 'right_wrist'],
         ['left_shoulder', 'left_hip'],
-        ['right_shoulder', 'right_hip'],
-        ['left_hip', 'left_knee'],
-        ['right_hip', 'right_knee'],
-        ['left_knee', 'left_ankle'],
-        ['right_knee', 'right_ankle']
+        ['right_shoulder', 'right_hip']
       ];
 
       keypointConnections.forEach(([part1, part2]) => {
