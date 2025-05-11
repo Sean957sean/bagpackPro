@@ -136,7 +136,7 @@
         
       console.log(poses);
       keypoints.forEach(k => {
-        if (k.score > 0.2) { // 신뢰도가 50% 이상인 키포인트만 그립니다.
+        if (k.score > 0) { // 신뢰도가 50% 이상인 키포인트만 그립니다.
           ctx.beginPath();
           ctx.arc(k.x, k.y, 5, 0, 2 * Math.PI);
           ctx.fillStyle = 'red';
