@@ -12,13 +12,14 @@
       padding: 2rem;
       max-width: 600px;
       margin: auto;
+      position: relative;
     }
     h1 {
       font-size: 1.8rem;
       margin-bottom: 1rem;
       text-align: center;
     }
-    video {
+    video, canvas {
       width: 100%;
       border-radius: 12px;
       box-shadow: 0 0 8px rgba(0,0,0,0.1);
@@ -26,12 +27,10 @@
     }
     canvas {
       position: absolute;
-      top: 0;
+      top: 2rem;
       left: 0;
-      width: 100%;
-      height: 100%;
       pointer-events: none;
-      border-radius: 12px;
+      z-index: 1;
     }
     label {
       display: block;
@@ -74,10 +73,10 @@
   <canvas id="canvas"></canvas>
 
   <label>키 (cm)</label>
-  <input type="number" id="height" value="180">
+  <input type="number" id="height" value="175">
 
   <label>몸무게 (kg)</label>
-  <input type="number" id="weight" value="70">
+  <input type="number" id="weight" value="68">
 
   <label>가방 무게 (kg)</label>
   <input type="number" id="bagWeight" value="3">
@@ -86,11 +85,11 @@
 
   <div class="result" id="result"></div>
 
-  <script type="module">
-    import * as poseDetection from 'https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0/dist/pose-detection.min.js';
-    import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0/dist/tf.min.js';
-    import 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@3.9.0/dist/tf-backend-webgl.min.js';
+  <!-- TensorFlow.js and Pose Detection UMD bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0"></script>
 
+  <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -100,7 +99,10 @@
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = stream;
-        return new Promise(resolve => video.onloadedmetadata = resolve);
+        return new Promise(resolve => video.onloadedmetadata = () => {
+          video.play();
+          resolve();
+        });
       } catch (error) {
         console.error("카메라 접근 실패:", error);
         resultDiv.textContent = "카메라 접근이 차단되었습니다. 브라우저 설정에서 허용해주세요.";
@@ -132,11 +134,11 @@
 
     function drawPose(poses) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!poses || poses.length === 0) return;
       const keypoints = poses[0].keypoints;
-        
-      console.log(poses);
+
       keypoints.forEach(k => {
-        if (k.score > 0.1) { // 신뢰도가 50% 이상인 키포인트만 그립니다.
+        if (k.score > 0.2) {
           ctx.beginPath();
           ctx.arc(k.x, k.y, 5, 0, 2 * Math.PI);
           ctx.fillStyle = 'red';
@@ -151,16 +153,20 @@
         ['left_elbow', 'left_wrist'],
         ['right_elbow', 'right_wrist'],
         ['left_shoulder', 'left_hip'],
-        ['right_shoulder', 'right_hip']
+        ['right_shoulder', 'right_hip'],
+        ['left_hip', 'left_knee'],
+        ['right_hip', 'right_knee'],
+        ['left_knee', 'left_ankle'],
+        ['right_knee', 'right_ankle']
       ];
 
-      keypointConnections.forEach(([part1, part2]) => {
-        const point1 = keypoints.find(k => k.name === part1);
-        const point2 = keypoints.find(k => k.name === part2);
-        if (point1 && point2 && point1.score > 0.5 && point2.score > 0.5) {
+      keypointConnections.forEach(([p1, p2]) => {
+        const pt1 = keypoints.find(k => k.name === p1);
+        const pt2 = keypoints.find(k => k.name === p2);
+        if (pt1 && pt2 && pt1.score > 0.5 && pt2.score > 0.5) {
           ctx.beginPath();
-          ctx.moveTo(point1.x, point1.y);
-          ctx.lineTo(point2.x, point2.y);
+          ctx.moveTo(pt1.x, pt1.y);
+          ctx.lineTo(pt2.x, pt2.y);
           ctx.strokeStyle = 'red';
           ctx.lineWidth = 2;
           ctx.stroke();
@@ -197,12 +203,17 @@
       const length = calculateStrapLength(angle, tilt, height, weight, bagWeight);
       resultDiv.textContent = `추천 가방끈 길이: ${length} cm`;
 
-      // 포즈 그리기
       drawPose(poses);
     }
+
+    // 전역 등록
     window.analyze = analyze;
 
-    await setupCamera();
+    // 시작 시 카메라 설정 및 캔버스 크기 일치
+    setupCamera().then(() => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    });
   </script>
 </body>
 </html>
