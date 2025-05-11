@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>가방끈 길이 추천기</title>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background: #f0f4f8;
+      color: #333;
+      padding: 2rem;
+      max-width: 600px;
+      margin: auto;
+    }
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    video {
+      width: 100%;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 0.5rem;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      margin-bottom: 1rem;
+    }
+    button {
+      width: 100%;
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 0.75rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #1d4ed8;
+    }
+    .result {
+      margin-top: 1rem;
+      background: #e0f2fe;
+      padding: 1rem;
+      border-radius: 8px;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎒 가방끈 길이 추천기</h1>
+  <video id="video" autoplay playsinline></video>
+
+  <label>키 (cm)</label>
+  <input type="number" id="height" value="170">
+
+  <label>몸무게 (kg)</label>
+  <input type="number" id="weight" value="60">
+
+  <label>가방 무게 (kg)</label>
+  <input type="number" id="bagWeight" value="3">
+
+  <button onclick="analyze()">자세 분석 & 끈 길이 계산</button>
+
+  <div class="result" id="result"></div>
+
+  <script type="module">
+    import * as poseDetection from 'https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection';
+    import '@tensorflow/tfjs-backend-webgl';
+
+    const video = document.getElementById('video');
+    const resultDiv = document.getElementById('result');
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      return new Promise(resolve => video.onloadedmetadata = resolve);
+    }
+
+    function getAngle(a, b, c) {
+      const ab = [a.x - b.x, a.y - b.y];
+      const cb = [c.x - b.x, c.y - b.y];
+      const dot = ab[0]*cb[0] + ab[1]*cb[1];
+      const magA = Math.hypot(...ab);
+      const magC = Math.hypot(...cb);
+      return (Math.acos(dot / (magA * magC)) * 180) / Math.PI;
+    }
+
+    function calculateStrapLength(angle, tilt, height, weight, bagWeight) {
+      const L_max = height * 0.40;
+      const L_min = height * 0.25;
+      const k_weight = height * 0.01;
+      const k_posture = height * 0.005;
+
+      const posture_penalty = angle / 30.0;
+      const tilt_penalty = tilt / 15.0;
+      const total_penalty = (bagWeight * k_weight) + (posture_penalty + tilt_penalty) * k_posture;
+
+      const strapLength = Math.max(L_min, Math.min(L_max, L_max - total_penalty));
+      return strapLength.toFixed(1);
+    }
+
+    async function analyze() {
+      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+      const poses = await detector.estimatePoses(video);
+      if (!poses.length) {
+        resultDiv.textContent = "자세 인식 실패. 다시 시도해주세요.";
+        return;
+      }
+
+      const keypoints = poses[0].keypoints;
+      const ls = keypoints.find(k => k.name === "left_shoulder");
+      const rs = keypoints.find(k => k.name === "right_shoulder");
+      const lh = keypoints.find(k => k.name === "left_hip");
+      const lk = keypoints.find(k => k.name === "left_knee");
+
+      if (!ls || !rs || !lh || !lk) {
+        resultDiv.textContent = "자세 인식이 정확하지 않습니다.";
+        return;
+      }
+
+      const angle = getAngle(ls, lh, lk);
+      const tilt = Math.abs(ls.y - rs.y) * 100;
+
+      const height = +document.getElementById('height').value;
+      const weight = +document.getElementById('weight').value;
+      const bagWeight = +document.getElementById('bagWeight').value;
+
+      const length = calculateStrapLength(angle, tilt, height, weight, bagWeight);
+      resultDiv.textContent = `추천 가방끈 길이: ${length} cm`;
+    }
+
+    await setupCamera();
+  </script>
+</body>
+</html>
