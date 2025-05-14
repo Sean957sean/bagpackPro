@@ -3,12 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>가방끈 길이 추천기</title>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard&display=swap" rel="stylesheet">
   <style>
-    img { 
-      width: 100%; 
-      max-width: 500px; 
-      margin-bottom: 1rem; 
-    }
     body {
       font-family: 'Pretendard', sans-serif;
       background: #f0f4f8;
@@ -73,87 +69,150 @@
 </head>
 <body>
   <h1>🎒 가방끈 길이 추천기</h1>
-
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
-  <img id="processed" src="" alt="Processed Image" />
 
-  
   <label>키 (cm)</label>
   <input type="number" id="height" value="175">
-  
+
   <label>몸무게 (kg)</label>
   <input type="number" id="weight" value="68">
-  
+
   <label>가방 무게 (kg)</label>
   <input type="number" id="bagWeight" value="3">
-  
+
   <button onclick="analyze()">자세 분석 & 끈 길이 계산</button>
-  
+
   <div class="result" id="result"></div>
+
+  <!-- TensorFlow.js and Pose Detection UMD bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0"></script>
 
   <script>
     const video = document.getElementById('video');
-    video.style.display = 'none';
-    const processedImg = document.getElementById('processed');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const resultDiv = document.getElementById('result');
 
     async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        return new Promise(resolve => video.onloadedmetadata = () => {
+          video.play();
           resolve();
-        };
-      });
-    }
-
-    async function captureAndSend() {
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0);
-
-      const imageData = canvas.toDataURL('image/jpeg');
-
-      const res = await fetch('http://localhost:5000/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: imageData })
-      });
-
-      const data = await res.json();
-      if (data.image) {
-        processedImg.src = data.image;
+        });
+      } catch (error) {
+        console.error("카메라 접근 실패:", error);
+        resultDiv.textContent = "카메라 접근이 차단되었습니다. 브라우저 설정에서 허용해주세요.";
       }
     }
 
-    async function analyze() {
-      const height = parseFloat(document.getElementById('height').value);
-      const weight = parseFloat(document.getElementById('weight').value);
-      const bagWeight = parseFloat(document.getElementById('bagWeight').value);
+    function getAngle(a, b, c) {
+      const ab = [a.x - b.x, a.y - b.y];
+      const cb = [c.x - b.x, c.y - b.y];
+      const dot = ab[0]*cb[0] + ab[1]*cb[1];
+      const magA = Math.hypot(...ab);
+      const magC = Math.hypot(...cb);
+      return (Math.acos(dot / (magA * magC)) * 180) / Math.PI;
+    }
 
-      const res = await fetch('http://localhost:5000/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ height, weight, bagWeight })
+    function calculateStrapLength(angle, tilt, height, weight, bagWeight) {
+      const L_max = height * 0.40;
+      const L_min = height * 0.25;
+      const k_weight = height * 0.01;
+      const k_posture = height * 0.005;
+
+      const posture_penalty = angle / 30.0;
+      const tilt_penalty = tilt / 15.0;
+      const total_penalty = (bagWeight * k_weight) + (posture_penalty + tilt_penalty) * k_posture;
+
+      const strapLength = Math.max(L_min, Math.min(L_max, L_max - total_penalty));
+      return strapLength.toFixed(1);
+    }
+
+    function drawPose(poses) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!poses || poses.length === 0) return;
+      const keypoints = poses[0].keypoints;
+
+      keypoints.forEach(k => {
+        if (k.score > 0.2) {
+          ctx.beginPath();
+          ctx.arc(k.x, k.y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = 'red';
+          ctx.fill();
+        }
       });
 
-      const data = await res.json();
-      document.getElementById('result').innerText = data.strap_length;
+      const keypointConnections = [
+        ['left_shoulder', 'right_shoulder'],
+        ['left_shoulder', 'left_elbow'],
+        ['right_shoulder', 'right_elbow'],
+        ['left_elbow', 'left_wrist'],
+        ['right_elbow', 'right_wrist'],
+        ['left_shoulder', 'left_hip'],
+        ['right_shoulder', 'right_hip'],
+        ['left_hip', 'left_knee'],
+        ['right_hip', 'right_knee'],
+        ['left_knee', 'left_ankle'],
+        ['right_knee', 'right_ankle']
+      ];
+
+      keypointConnections.forEach(([p1, p2]) => {
+        const pt1 = keypoints.find(k => k.name === p1);
+        const pt2 = keypoints.find(k => k.name === p2);
+        if (pt1 && pt2 && pt1.score > 0.5 && pt2.score > 0.5) {
+          ctx.beginPath();
+          ctx.moveTo(pt1.x, pt1.y);
+          ctx.lineTo(pt2.x, pt2.y);
+          ctx.strokeStyle = 'red';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      });
     }
 
-    async function loop() {
-      await captureAndSend();
-      setTimeout(loop, 1);
+    async function analyze() {
+      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+      const poses = await detector.estimatePoses(video);
+      if (!poses.length) {
+        resultDiv.textContent = "자세 인식 실패. 다시 시도해주세요.";
+        return;
+      }
+
+      const keypoints = poses[0].keypoints;
+      const ls = keypoints.find(k => k.name === "left_shoulder");
+      const rs = keypoints.find(k => k.name === "right_shoulder");
+      const lh = keypoints.find(k => k.name === "left_hip");
+      const lk = keypoints.find(k => k.name === "left_knee");
+
+      if (!ls || !rs || !lh || !lk) {
+        resultDiv.textContent = "자세 인식이 정확하지 않습니다.";
+        return;
+      }
+
+      const angle = getAngle(ls, lh, lk);
+      const tilt = Math.abs(ls.y - rs.y) * 100;
+
+      const height = +document.getElementById('height').value;
+      const weight = +document.getElementById('weight').value;
+      const bagWeight = +document.getElementById('bagWeight').value;
+
+      const length = calculateStrapLength(angle, tilt, height, weight, bagWeight);
+      resultDiv.textContent = `추천 가방끈 길이: ${length} cm`;
+
+      drawPose(poses);
     }
 
+    // 전역 등록
+    window.analyze = analyze;
+
+    // 시작 시 카메라 설정 및 캔버스 크기 일치
     setupCamera().then(() => {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      loop();
     });
   </script>
 </body>
