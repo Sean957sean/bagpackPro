@@ -2,23 +2,27 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>가방끈 길이 조절 추천기</title>
+  <title>가방끈 길이 추천기</title>
   <link href="https://fonts.googleapis.com/css2?family=Pretendard&display=swap" rel="stylesheet">
   <style>
     body {
       font-family: 'Pretendard', sans-serif;
       background: #f0f4f8;
+      color: #333;
       padding: 2rem;
       max-width: 600px;
       margin: auto;
+      position: relative;
     }
     h1 {
       font-size: 1.8rem;
+      margin-bottom: 1rem;
       text-align: center;
     }
     video, canvas {
       width: 100%;
       border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
       margin-bottom: 1rem;
     }
     canvas {
@@ -26,39 +30,59 @@
       top: 2rem;
       left: 0;
       pointer-events: none;
+      z-index: 1;
     }
-    label, input, button, .result {
+    label {
       display: block;
-      width: 100%;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
+      font-weight: bold;
     }
-    input, button {
+    input {
+      width: 100%;
       padding: 0.5rem;
       border-radius: 8px;
+      border: 1px solid #ccc;
+      margin-bottom: 1rem;
     }
     button {
+      width: 100%;
       background-color: #2563eb;
       color: white;
       border: none;
+      padding: 0.75rem;
+      border-radius: 8px;
+      font-size: 1rem;
       cursor: pointer;
     }
+    button:hover {
+      background-color: #1d4ed8;
+    }
     .result {
+      margin-top: 1rem;
       background: #e0f2fe;
       padding: 1rem;
       border-radius: 8px;
+      font-size: 1.1rem;
       text-align: center;
+      line-height: 1.6;
     }
   </style>
 </head>
 <body>
-  <h1>🎒 가방끈 길이 조절 추천기</h1>
+  <h1>🎒 가방끈 길이 추천기</h1>
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
+
+  <label>키 (cm)</label>
+  <input type="number" id="height" value="175">
 
   <label>몸무게 (kg)</label>
   <input type="number" id="weight" value="68">
 
-  <button onclick="analyze()">자세 분석 및 가방끈 길이 계산</button>
+  <label>가방 무게 (kg)</label>
+  <input type="number" id="bagWeight" value="3">
+
+  <button onclick="analyze()">자세 분석 & 끈 길이 계산</button>
 
   <div class="result" id="result"></div>
 
@@ -80,65 +104,78 @@
       });
     }
 
-    function calculateStrapLength(shoulderDiff, shoulderToHip, weight) {
-      const baseStrapLength = (shoulderToHip - 10); // 엉덩이보다 10cm 위
-      const maxAllowed = weight * 0.1 * 100; // cm 환산
+    function drawPose(poses) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!poses || poses.length === 0) return;
+      const keypoints = poses[0].keypoints;
 
-      let leftStrap = baseStrapLength;
-      let rightStrap = baseStrapLength;
-
-      if (shoulderDiff > 1) {
-        leftStrap -= shoulderDiff / 2;
-        rightStrap += shoulderDiff / 2;
-      } else if (shoulderDiff < -1) {
-        leftStrap += (-shoulderDiff / 2);
-        rightStrap -= (-shoulderDiff / 2);
-      }
-
-      leftStrap = Math.min(leftStrap, maxAllowed);
-      rightStrap = Math.min(rightStrap, maxAllowed);
-
-      return {
-        leftStrap: leftStrap.toFixed(1),
-        rightStrap: rightStrap.toFixed(1)
-      };
+      keypoints.forEach(k => {
+        if (k.score > 0.3) {
+          ctx.beginPath();
+          ctx.arc(k.x, k.y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = 'red';
+          ctx.fill();
+        }
+      });
     }
 
-    function getPixelDistance(p1, p2) {
-      return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+    function estimateStrapLengths(ls, rs, lh, height, weight, bagWeight) {
+      const pixelToCm = height / canvas.height;
+      const shoulderHeight = (ls.y + rs.y) / 2;
+      const torsoLengthPx = lh.y - shoulderHeight;
+      const torsoLengthCm = torsoLengthPx * pixelToCm;
+      const targetLength = Math.max(20, torsoLengthCm - 10); // 10cm 위에 오도록
+
+      const delta = (rs.y - ls.y) * pixelToCm;
+      const leftStrap = targetLength + delta / 2;
+      const rightStrap = targetLength - delta / 2;
+
+      const maxStrap = weight * 0.1; // kg → cm
+      return {
+        left: Math.min(leftStrap, maxStrap).toFixed(1),
+        right: Math.min(rightStrap, maxStrap).toFixed(1),
+        delta: delta.toFixed(1),
+        forceLeft: (bagWeight * 9.8 * (rightStrap / (leftStrap + rightStrap))).toFixed(1),
+        forceRight: (bagWeight * 9.8 * (leftStrap / (leftStrap + rightStrap))).toFixed(1)
+      };
     }
 
     async function analyze() {
       const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
       const poses = await detector.estimatePoses(video);
-
       if (!poses.length) {
         resultDiv.textContent = "자세 인식 실패. 다시 시도해주세요.";
         return;
       }
 
       const keypoints = poses[0].keypoints;
-      const ls = keypoints.find(p => p.name === 'left_shoulder');
-      const rs = keypoints.find(p => p.name === 'right_shoulder');
-      const lh = keypoints.find(p => p.name === 'left_hip');
+      const ls = keypoints.find(k => k.name === "left_shoulder");
+      const rs = keypoints.find(k => k.name === "right_shoulder");
+      const lh = keypoints.find(k => k.name === "left_hip");
 
-      if (!ls || !rs || !lh || ls.score < 0.5 || rs.score < 0.5 || lh.score < 0.5) {
-        resultDiv.textContent = "신체 주요 부위를 인식하지 못했습니다.";
+      if (!ls || !rs || !lh) {
+        resultDiv.textContent = "어깨 또는 엉덩이 인식 실패.";
         return;
       }
 
-      const shoulderHeightDiff = (ls.y - rs.y) * 100 / video.videoHeight; // cm 기준 어깨 높이 차이
-      const shoulderToHipDistPx = getPixelDistance({ x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 }, lh);
-      const realDistance = (shoulderToHipDistPx / video.videoHeight) * 100; // 비율로 환산 가정: 1m 떨어진 거리
-
+      const height = +document.getElementById('height').value;
       const weight = +document.getElementById('weight').value;
-      const { leftStrap, rightStrap } = calculateStrapLength(shoulderHeightDiff, realDistance, weight);
+      const bagWeight = +document.getElementById('bagWeight').value;
+
+      const result = estimateStrapLengths(ls, rs, lh, height, weight, bagWeight);
 
       resultDiv.innerHTML = `
-        왼쪽 어깨끈 길이: <strong>${leftStrap} cm</strong><br>
-        오른쪽 어깨끈 길이: <strong>${rightStrap} cm</strong><br>
-        (엉덩이 위 10cm 위치 기준, 무게 한도 ${Math.round(weight * 0.1 * 100)}cm 내 제한)`;
+        왼쪽 가방끈 길이: <strong>${result.left} cm</strong><br>
+        오른쪽 가방끈 길이: <strong>${result.right} cm</strong><br>
+        어깨 높이 차이: ${result.delta} cm<br>
+        왼쪽 어깨가 받는 힘: ${result.forceLeft} N<br>
+        오른쪽 어깨가 받는 힘: ${result.forceRight} N
+      `;
+
+      drawPose(poses);
     }
+
+    window.analyze = analyze;
 
     setupCamera().then(() => {
       canvas.width = video.videoWidth;
