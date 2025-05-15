@@ -79,7 +79,7 @@
   <label>몸무게 (kg)</label>
   <input type="number" id="weight" value="68">
 
-  <label>가방 무게 (kg)</label>
+  <label>가방 무게 (N)</label>
   <input type="number" id="bagWeight" value="3">
 
   <button onclick="analyze()">자세 분석 & 끈 길이 계산</button>
@@ -130,13 +130,13 @@
       const leftStrap = targetLength + delta / 2;
       const rightStrap = targetLength - delta / 2;
 
-      const maxStrap = weight * 0.1; // kg → cm
+     
       return {
-        left: Math.min(leftStrap, maxStrap).toFixed(1),
-        right: Math.min(rightStrap, maxStrap).toFixed(1),
+        left: leftStrap.toFixed(1),
+        right: rightStrap.toFixed(1),
         delta: delta.toFixed(1),
-        forceLeft: (bagWeight * 9.8 * (rightStrap / (leftStrap + rightStrap))).toFixed(1),
-        forceRight: (bagWeight * 9.8 * (leftStrap / (leftStrap + rightStrap))).toFixed(1)
+        forceLeft: (bagWeight * (rightStrap / (leftStrap + rightStrap))).toFixed(1),
+        forceRight: (bagWeight * (leftStrap / (leftStrap + rightStrap))).toFixed(1)
       };
     }
 
@@ -163,14 +163,20 @@
       const bagWeight = +document.getElementById('bagWeight').value;
 
       const result = estimateStrapLengths(ls, rs, lh, height, weight, bagWeight);
+      const shoulderDiffText = result.delta > 0
+        ? `왼쪽 어깨가 오른쪽 어깨보다 ${Math.abs(result.delta)} cm 더 높습니다.`
+        : result.delta < 0
+          ? `오른쪽 어깨가 왼쪽 어깨보다 ${Math.abs(result.delta)} cm 더 높습니다.`
+          : `양쪽 어깨 높이가 같습니다.`;
 
       resultDiv.innerHTML = `
         왼쪽 가방끈 길이: <strong>${result.left} cm</strong><br>
         오른쪽 가방끈 길이: <strong>${result.right} cm</strong><br>
-        어깨 높이 차이: ${result.delta} cm<br>
+        ${shoulderDiffText}<br>
         왼쪽 어깨가 받는 힘: ${result.forceLeft} N<br>
         오른쪽 어깨가 받는 힘: ${result.forceRight} N
       `;
+
 
       drawPose(poses);
     }
